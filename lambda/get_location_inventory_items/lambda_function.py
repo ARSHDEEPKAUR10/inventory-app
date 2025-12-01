@@ -1,25 +1,18 @@
 import json
 import boto3
+from boto3.dynamodb.conditions import Key
 
 dynamodb = boto3.resource('dynamodb')
 table = dynamodb.Table('Inventory')
 
+INDEX_NAME = "Location-Index"
+
 def lambda_handler(event, context):
     print("EVENT:", json.dumps(event))
 
-    # item_id
+    # location_id from path, query, or top-level
     path_params = event.get("pathParameters") or {}
-    item_id = path_params.get("id")
-
-    # location_id
-    location_id = None
-    body_str = event.get("body")
-    if body_str:
-        try:
-            body = json.loads(body_str)
-            location_id = body.get("location_id")
-        except Exception:
-            pass
+    location_id = path_params.get("location_id")
 
     if location_id is None:
         qs = event.get("queryStringParameters") or {}
@@ -28,24 +21,23 @@ def lambda_handler(event, context):
     if location_id is None:
         location_id = event.get("location_id")
 
-    if not item_id or not location_id:
+    if not location_id:
         return {
             "statusCode": 400,
-            "body": json.dumps({"error": "item_id and location_id are required"})
+            "body": json.dumps({"error": "location_id is required"})
         }
 
     try:
-        table.delete_item(
-            Key={"item_id": item_id, "location_id": location_id}
+        response = table.query(
+            IndexName=INDEX_NAME,
+            KeyConditionExpression=Key("location_id").eq(location_id)
         )
+        items = response.get("Items", [])
 
         return {
             "statusCode": 200,
-            "body": json.dumps({
-                "message": "Item deleted",
-                "item_id": item_id,
-                "location_id": location_id
-            })
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps(items, default=str)
         }
 
     except Exception as e:
